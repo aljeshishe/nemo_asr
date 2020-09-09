@@ -1,14 +1,29 @@
 import glob
 import os
 import subprocess
+import sys
 import tarfile
+from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 
 import wget
-import torch
 import random
 import numpy as np
+import torch
+from nemo.core import DeviceType
+from callbacks import WandbLogger
+import nemo
+import nemo.collections.asr as nemo_asr
+import json
+import librosa
+from ruamel.yaml import YAML
+from nemo.collections.asr import helpers
+from functools import partial
+
+parser = ArgumentParser()
+parser.add_argument("name", nargs="?", default="nemo_asr", help="run name")
+args = parser.parse_args()
 
 if torch.cuda.is_available():
     eval_freq = 100
@@ -22,13 +37,11 @@ def seed_torch(seed=1029):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-seed_torch(42)
-# Download the dataset. This will take a few moments...
-from callbacks import WandbLogger
+print("Download the dataset. This will take a few moments...")
 
 print("******")
 data_dir = '.'
@@ -54,14 +67,8 @@ if not os.path.exists(data_dir + '/an4/'):
 print("Finished conversion.\n******")
 
 
-# NeMo's "core" package
-import nemo
-# NeMo's ASR collection
-import nemo.collections.asr as nemo_asr
 
-# --- Building Manifest Files --- #
-import json
-import librosa
+print('Building Manifest Files')
 # Function to build a manifest
 def build_manifest(transcripts_path, manifest_path, wav_path):
     with open(transcripts_path, 'r') as fin:
@@ -105,18 +112,15 @@ if not os.path.isfile(test_manifest):
     print("Test manifest created.")
 print("******")
 
-#logger = nemo.logging
-import torch
-from nemo.core import DeviceType
 
 
 neural_factory = nemo.core.NeuralModuleFactory(
     log_dir=data_dir+'/an4_tutorial/',
-    placement=(DeviceType.GPU if torch.cuda.is_available() else DeviceType.CPU)
+    placement=(DeviceType.GPU if torch.cuda.is_available() else DeviceType.CPU),
+    random_seed=42,
     )
 
-# --- Config Information ---#
-from ruamel.yaml import YAML
+print('Config Information')
 
 config_path = './configs/jasper_an4.yaml'
 
@@ -125,7 +129,7 @@ with open(config_path) as f:
     params = yaml.load(f)
 labels = params['labels'] # Vocab
 
-# --- Instantiate Neural Modules --- #
+print('Instantiate Neural Modules')
 
 # Create training and test data layers (which load data) and data preprocessor
 data_layer_train = nemo_asr.AudioToTextDataLayer.import_from_config(
@@ -159,7 +163,7 @@ greedy_decoder = nemo_asr.GreedyCTCDecoder()
 
 """The next step is to assemble our training DAG by specifying the inputs to each neural module."""
 
-# --- Assemble Training DAG --- #
+print('Assemble Training DAG')
 audio_signal, audio_signal_len, transcript, transcript_len = data_layer_train()
 
 processed_signal, processed_signal_len = data_preprocessor(
@@ -178,12 +182,8 @@ loss = ctc_loss(
     input_length=encoded_len,
     target_length=transcript_len)
 
-"""We would like to be able to evaluate our model on the test set, as well, so let's set up the evaluation DAG.
 
-Our **evaluation DAG will reuse most of the parts of the training DAG with the exception of the data layer**, since we are loading the evaluation data from a different file but evaluating on the same model. Note that if we were using data augmentation in training, we would also leave that out in the evaluation DAG.
-"""
-
-# --- Assemble Validation DAG --- #
+print('Assemble Validation DAG')
 (audio_signal_test, audio_len_test,
  transcript_test, transcript_len_test) = data_layer_test()
 
@@ -204,17 +204,13 @@ loss_test = ctc_loss(
     target_length=transcript_len_test)
 
 
-# --- Create Callbacks --- #
-from nemo.collections.asr.helpers import monitor_asr_train_progress, \
-    process_evaluation_batch, process_evaluation_epoch
-from functools import partial
-
+print('Create Callbacks')
 callbacks = []
 cb = nemo.core.SimpleLogger(step_freq=1)
 callbacks.append(cb)
 os.environ["WANDB_API_KEY"] = "5c5f03d42e16ce3df7aaabb404480128adef6719"
 runid = datetime.now().strftime("%H%M%S")
-wandb_name = f'nemo_asr_{runid}'
+wandb_name = f'{args.name}_{runid}'
 cb = WandbLogger(
     step_freq=1, runid=runid,
     folder=Path("run") / runid, name=wandb_name,
@@ -230,9 +226,8 @@ cb = nemo.core.SimpleLossLoggerCallback(
     tensors=[loss, preds, transcript, transcript_len],
     # The print_func defines what gets printed.
     print_func=partial(
-        monitor_asr_train_progress,
+        helpers.monitor_asr_train_progress,
         labels=labels),
-    tb_writer=neural_factory.tb_writer
     )
 callbacks.append(cb)
 
@@ -241,8 +236,8 @@ callbacks.append(cb)
 # In this case, we only have one.
 cb = nemo.core.EvaluatorCallback(
     eval_tensors=[loss_test, preds_test, transcript_test, transcript_len_test],
-    user_iter_callback=partial(process_evaluation_batch, labels=labels),
-    user_epochs_done_callback=process_evaluation_epoch,
+    user_iter_callback=partial(helpers.process_evaluation_batch, labels=labels),
+    user_epochs_done_callback=helpers.process_evaluation_epoch,
     eval_step=eval_freq,  # How often we evaluate the model on the test set
     tb_writer=neural_factory.tb_writer,
     wandb_name=wandb_name,
@@ -254,7 +249,9 @@ callbacks.append(cb)
 # callbacks.append(cb)
 os.makedirs(data_dir+'/an4_checkpoints', exist_ok=True)
 
-# --- Start Training! --- #
+seed_torch(42)
+
+print('Start Training!')
 neural_factory.train(
     tensors_to_optimize=[loss],
     callbacks=callbacks,
@@ -263,21 +260,7 @@ neural_factory.train(
         "num_epochs": 100, "lr": 0.01, "weight_decay": 1e-4
     })
 
-# Training for 100 epochs will take a little while, depending on your machine.
-# It should take about 20 minutes on Google Colab.
-# At the end of 100 epochs, your evaluation WER should be around 20-25%.
-
-"""There we go! We've put together a full training pipeline for the model and trained it for 100 epochs.
-
-### Inference
-
-What if we have a trained model that we **just want to run inference** on?
-
-In that case, we just need to instantiate and link up the modules needed for the evaluation DAG (same procedure as before), and then run `infer` to get the results. Let's see what performing inference with our last checkpoint would look like.
-"""
-
-# --- Inference Only --- #
-
+print('Inference Only')
 # We've already built the inference DAG above, so all we need is to call infer().
 evaluated_tensors = neural_factory.infer(
     # These are the tensors we want to get from the model.
@@ -287,16 +270,13 @@ evaluated_tensors = neural_factory.infer(
     )
 
 # Process the results to get WER
-from nemo.collections.asr.helpers import word_error_rate, \
-    post_process_predictions, post_process_transcripts
-
-greedy_hypotheses = post_process_predictions(
+greedy_hypotheses = helpers.post_process_predictions(
     evaluated_tensors[1], labels)
 
-references = post_process_transcripts(
+references = helpers.post_process_transcripts(
     evaluated_tensors[2], evaluated_tensors[3], labels)
 
-wer = word_error_rate(hypotheses=greedy_hypotheses, references=references)
+wer = helpers.word_error_rate(hypotheses=greedy_hypotheses, references=references)
 print("*** Greedy WER: {:.2f} ***".format(wer * 100))
 
 """And that's it!
