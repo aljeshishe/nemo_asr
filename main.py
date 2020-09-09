@@ -7,12 +7,26 @@ from pathlib import Path
 
 import wget
 import torch
+import random
+import numpy as np
 
 if torch.cuda.is_available():
     eval_freq = 100
 else:
     eval_freq = 1
 
+def seed_torch(seed=1029):
+    print(f'seeding {seed}')
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+seed_torch(42)
 # Download the dataset. This will take a few moments...
 from callbacks import WandbLogger
 
@@ -189,12 +203,6 @@ loss_test = ctc_loss(
     input_length=encoded_len_test,
     target_length=transcript_len_test)
 
-"""### Running the Model
-
-We would like to be able to monitor our model while it's training, so we use **callbacks**. In general, *callbacks are functions that are called at specific intervals over the course of training or inference*, such as at the start or end of every *n* iterations, epochs, etc. The callbacks we'll be using for this are the `SimpleLossLoggerCallback`, which reports the training loss (or another metric of your choosing, such as WER for ASR tasks), and the `EvaluatorCallback`, which regularly evaluates the model on the test set. Both of these callbacks require you to pass in the tensors to be evaluated--these would be the final outputs of the training and eval DAGs above.
-
-Another useful callback is the `CheckpointCallback`, for saving checkpoints at set intervals. We create one here just to demonstrate how it works.
-"""
 
 # --- Create Callbacks --- #
 from nemo.collections.asr.helpers import monitor_asr_train_progress, \
@@ -206,7 +214,7 @@ cb = nemo.core.SimpleLogger(step_freq=1)
 callbacks.append(cb)
 os.environ["WANDB_API_KEY"] = "5c5f03d42e16ce3df7aaabb404480128adef6719"
 runid = datetime.now().strftime("%H%M%S")
-wandb_name = 'nemo_asr'
+wandb_name = f'nemo_asr_{runid}'
 cb = WandbLogger(
     step_freq=1, runid=runid,
     folder=Path("run") / runid, name=wandb_name,
@@ -237,7 +245,7 @@ cb = nemo.core.EvaluatorCallback(
     user_epochs_done_callback=process_evaluation_epoch,
     eval_step=eval_freq,  # How often we evaluate the model on the test set
     tb_writer=neural_factory.tb_writer,
-    wandb_name='nemo_asr',
+    wandb_name=wandb_name,
     wandb_project='asr',
 )
 callbacks.append(cb)
