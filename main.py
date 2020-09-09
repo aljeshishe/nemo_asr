@@ -1,17 +1,23 @@
-from nemo.utils.lr_policies import CosineAnnealing
-
-from nemo.utils.lr_policies import get_all_lr_classes
-
-data_dir = '.'
-
 import glob
 import os
 import subprocess
 import tarfile
+from datetime import datetime
+from pathlib import Path
+
 import wget
+import torch
+
+if torch.cuda.is_available():
+    eval_freq = 100
+else:
+    eval_freq = 1
 
 # Download the dataset. This will take a few moments...
+from callbacks import WandbLogger
+
 print("******")
+data_dir = '.'
 if not os.path.exists(data_dir + '/an4_sphere.tar.gz'):
     an4_url = 'http://www.speech.cs.cmu.edu/databases/an4/an4_sphere.tar.gz'
     an4_path = wget.download(an4_url, data_dir)
@@ -191,10 +197,18 @@ Another useful callback is the `CheckpointCallback`, for saving checkpoints at s
 """
 
 # --- Create Callbacks --- #
-# We use these imports to pass to callbacks more complex functions to perform.
 from nemo.collections.asr.helpers import monitor_asr_train_progress, \
     process_evaluation_batch, process_evaluation_epoch
 from functools import partial
+simple_callback = nemo.core.SimpleLogger(step_freq=1)
+runid = datetime.now().strftime("%H%M%S")
+wandb_name = 'nemo_asr'
+wandb_callback = WandbLogger(
+    step_freq=1, runid=runid,
+    folder=Path("run") / runid, name=wandb_name,
+    save_freq=1000,
+    asr_model=None
+)
 
 train_callback = nemo.core.SimpleLossLoggerCallback(
     # Notice that we pass in loss, predictions, and the transcript info.
@@ -213,12 +227,13 @@ train_callback = nemo.core.SimpleLossLoggerCallback(
 # In this case, we only have one.
 eval_callback = nemo.core.EvaluatorCallback(
     eval_tensors=[loss_test, preds_test, transcript_test, transcript_len_test],
-    user_iter_callback=partial(
-        process_evaluation_batch, labels=labels),
+    user_iter_callback=partial(process_evaluation_batch, labels=labels),
     user_epochs_done_callback=process_evaluation_epoch,
-    eval_step=500,  # How often we evaluate the model on the test set
-    tb_writer=neural_factory.tb_writer
-    )
+    eval_step=eval_freq,  # How often we evaluate the model on the test set
+    tb_writer=neural_factory.tb_writer,
+    wandb_name='nemo_asr',
+    wandb_project='asr',
+)
 
 checkpoint_saver_callback = nemo.core.CheckpointCallback(
     folder=data_dir+'/an4_checkpoints',
@@ -231,7 +246,7 @@ if not os.path.exists(data_dir+'/an4_checkpoints'):
 # --- Start Training! --- #
 neural_factory.train(
     tensors_to_optimize=[loss],
-    callbacks=[eval_callback, checkpoint_saver_callback],
+    callbacks=[wandb_callback, simple_callback, eval_callback, checkpoint_saver_callback],
     #callbacks=[train_callback, eval_callback, checkpoint_saver_callback],
     optimizer='novograd',
     optimization_params={
