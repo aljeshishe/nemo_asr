@@ -200,17 +200,22 @@ Another useful callback is the `CheckpointCallback`, for saving checkpoints at s
 from nemo.collections.asr.helpers import monitor_asr_train_progress, \
     process_evaluation_batch, process_evaluation_epoch
 from functools import partial
-simple_callback = nemo.core.SimpleLogger(step_freq=1)
+
+callbacks = []
+cb = nemo.core.SimpleLogger(step_freq=1)
+callbacks.append(cb)
+os.environ["WANDB_API_KEY"] = "5c5f03d42e16ce3df7aaabb404480128adef6719"
 runid = datetime.now().strftime("%H%M%S")
 wandb_name = 'nemo_asr'
-wandb_callback = WandbLogger(
+cb = WandbLogger(
     step_freq=1, runid=runid,
     folder=Path("run") / runid, name=wandb_name,
     save_freq=1000,
     asr_model=None
 )
+callbacks.append(cb)
 
-train_callback = nemo.core.SimpleLossLoggerCallback(
+cb = nemo.core.SimpleLossLoggerCallback(
     # Notice that we pass in loss, predictions, and the transcript info.
     # Of course we would like to see our training loss, but we need the
     # other arguments to calculate the WER.
@@ -221,11 +226,12 @@ train_callback = nemo.core.SimpleLossLoggerCallback(
         labels=labels),
     tb_writer=neural_factory.tb_writer
     )
+callbacks.append(cb)
 
 # We can create as many evaluation DAGs and callbacks as we want,
 # which is useful in the case of having more than one evaluation dataset.
 # In this case, we only have one.
-eval_callback = nemo.core.EvaluatorCallback(
+cb = nemo.core.EvaluatorCallback(
     eval_tensors=[loss_test, preds_test, transcript_test, transcript_len_test],
     user_iter_callback=partial(process_evaluation_batch, labels=labels),
     user_epochs_done_callback=process_evaluation_epoch,
@@ -234,20 +240,16 @@ eval_callback = nemo.core.EvaluatorCallback(
     wandb_name='nemo_asr',
     wandb_project='asr',
 )
+callbacks.append(cb)
 
-checkpoint_saver_callback = nemo.core.CheckpointCallback(
-    folder=data_dir+'/an4_checkpoints',
-    step_freq=1000  # How often checkpoints are saved
-    )
-
-if not os.path.exists(data_dir+'/an4_checkpoints'):
-    os.makedirs(data_dir+'/an4_checkpoints')
+# cb = nemo.core.CheckpointCallback(folder=data_dir+'/an4_checkpoints', step_freq=1000)
+# callbacks.append(cb)
+os.makedirs(data_dir+'/an4_checkpoints', exist_ok=True)
 
 # --- Start Training! --- #
 neural_factory.train(
     tensors_to_optimize=[loss],
-    callbacks=[wandb_callback, simple_callback, eval_callback, checkpoint_saver_callback],
-    #callbacks=[train_callback, eval_callback, checkpoint_saver_callback],
+    callbacks=callbacks,
     optimizer='novograd',
     optimization_params={
         "num_epochs": 100, "lr": 0.01, "weight_decay": 1e-4
