@@ -38,11 +38,11 @@ def seed_torch(seed=1029):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
 print("Download the dataset. This will take a few moments...")
-
 print("******")
 data_dir = '.'
 if not os.path.exists(data_dir + '/an4_sphere.tar.gz'):
@@ -67,9 +67,7 @@ if not os.path.exists(data_dir + '/an4/'):
 print("Finished conversion.\n******")
 
 
-
 print('Building Manifest Files')
-# Function to build a manifest
 def build_manifest(transcripts_path, manifest_path, wav_path):
     with open(transcripts_path, 'r') as fin:
         with open(manifest_path, 'w') as fout:
@@ -135,7 +133,7 @@ print('Instantiate Neural Modules')
 data_layer_train = nemo_asr.AudioToTextDataLayer.import_from_config(
     config_path,
     "AudioToTextDataLayer_train",
-    overwrite_params={"manifest_filepath": train_manifest}
+    overwrite_params={"manifest_filepath": train_manifest},
 ) # Training datalayer
 
 data_layer_test = nemo_asr.AudioToTextDataLayer.import_from_config(
@@ -257,7 +255,7 @@ neural_factory.train(
     callbacks=callbacks,
     optimizer='novograd',
     optimization_params={
-        "num_epochs": 100, "lr": 0.01, "weight_decay": 1e-4
+        "num_epochs": 20, "lr": 0.01, "weight_decay": 1e-4
     })
 
 print('Inference Only')
