@@ -34,6 +34,7 @@ if torch.cuda.is_available():
 else:
     eval_freq = 1
 
+print(f'optimization_params={optimization_params}')
 
 def seed_torch(seed=1029):
     print(f'seeding {seed}')
