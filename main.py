@@ -25,10 +25,15 @@ parser = ArgumentParser()
 parser.add_argument("name", nargs="?", default="nemo_asr", help="run name")
 args = parser.parse_args()
 
+optimization_params = {
+    "num_epochs": 1000, "lr": 0.001, "weight_decay": 1e-4
+}
+
 if torch.cuda.is_available():
     eval_freq = 100
 else:
     eval_freq = 1
+
 
 def seed_torch(seed=1029):
     print(f'seeding {seed}')
@@ -127,7 +132,7 @@ with open(config_path) as f:
     params = yaml.load(f)
 labels = params['labels'] # Vocab
 
-print('Instantiate Neural Modules')
+print('Instantiate optimization_paramsNeural Modules')
 
 # Create training and test data layers (which load data) and data preprocessor
 data_layer_train = nemo_asr.AudioToTextDataLayer.import_from_config(
@@ -214,7 +219,7 @@ cb = WandbLogger(
     folder=Path("run") / runid, name=wandb_name,
     save_freq=1000,
     asr_model=None,
-    args=dict(a=1, b=2)
+    args=optimization_params
 )
 callbacks.append(cb)
 
@@ -248,16 +253,14 @@ callbacks.append(cb)
 # callbacks.append(cb)
 os.makedirs(data_dir+'/an4_checkpoints', exist_ok=True)
 
-# seed_torch(42)
+seed_torch(42)
 
 print('Start Training!')
 neural_factory.train(
     tensors_to_optimize=[loss],
     callbacks=callbacks,
     optimizer='novograd',
-    optimization_params={
-        "num_epochs": 1000, "lr": 0.001, "weight_decay": 1e-4
-    })
+    optimization_params=optimization_params)
 
 print('Inference Only')
 # We've already built the inference DAG above, so all we need is to call infer().
