@@ -256,7 +256,7 @@ neural_factory.train(
     callbacks=callbacks,
     optimizer='novograd',
     optimization_params={
-        "num_epochs": 1000, "lr": 0.01, "weight_decay": 1e-4
+        "num_epochs": 1000, "lr": 0.001, "weight_decay": 1e-4
     })
 
 print('Inference Only')
