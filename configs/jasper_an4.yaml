@@ -14,8 +14,7 @@ AudioToTextDataLayer_train:
         sample_rate: *sample_rate
         labels: *labels
         batch_size: 48
-        shuffle: false
-        num_workers: 0
+        shuffle: true
 
 
 AudioToTextDataLayer_eval:
@@ -26,7 +25,6 @@ AudioToTextDataLayer_eval:
         labels: *labels
         batch_size: 64
         shuffle: false
-        num_workers: 0
 
 
 AudioToMelSpectrogramPreprocessor:

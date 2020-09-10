@@ -213,7 +213,8 @@ cb = WandbLogger(
     step_freq=1, runid=runid,
     folder=Path("run") / runid, name=wandb_name,
     save_freq=1000,
-    asr_model=None
+    asr_model=None,
+    args=dict(a=1, b=2)
 )
 callbacks.append(cb)
 
@@ -247,7 +248,7 @@ callbacks.append(cb)
 # callbacks.append(cb)
 os.makedirs(data_dir+'/an4_checkpoints', exist_ok=True)
 
-seed_torch(42)
+# seed_torch(42)
 
 print('Start Training!')
 neural_factory.train(
